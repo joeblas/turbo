@@ -22,6 +22,7 @@ pub(crate) mod login;
 pub(crate) mod logout;
 pub(crate) mod ls;
 pub(crate) mod prune;
+pub(crate) mod query;
 pub(crate) mod run;
 pub(crate) mod scan;
 pub(crate) mod telemetry;
@@ -31,8 +32,7 @@ pub(crate) mod unlink;
 pub struct CommandBase {
     pub repo_root: AbsoluteSystemPathBuf,
     pub color_config: ColorConfig,
-    #[cfg(test)]
-    pub global_config_path: Option<AbsoluteSystemPathBuf>,
+    pub override_global_config_path: Option<AbsoluteSystemPathBuf>,
     config: OnceCell<ConfigurationOptions>,
     args: Args,
     version: &'static str,
@@ -49,16 +49,14 @@ impl CommandBase {
             repo_root,
             color_config,
             args,
-            #[cfg(test)]
-            global_config_path: None,
+            override_global_config_path: None,
             config: OnceCell::new(),
             version,
         }
     }
 
-    #[cfg(test)]
-    pub fn with_global_config_path(mut self, path: AbsoluteSystemPathBuf) -> Self {
-        self.global_config_path = Some(path);
+    pub fn with_override_global_config_path(mut self, path: AbsoluteSystemPathBuf) -> Self {
+        self.override_global_config_path = Some(path);
         self
     }
 
@@ -87,7 +85,7 @@ impl CommandBase {
                     .dangerously_disable_package_manager_check
                     .then_some(true),
             )
-            .with_daemon(self.args.run_args.as_ref().and_then(|args| args.daemon()))
+            .with_daemon(self.args.run_args().and_then(|args| args.daemon()))
             .with_env_mode(
                 self.args
                     .command
@@ -103,6 +101,28 @@ impl CommandBase {
                             .and_then(|args| args.env_mode)
                     }),
             )
+            .with_cache_dir(
+                self.args
+                    .command
+                    .as_ref()
+                    .and_then(|c| match c {
+                        Command::Run { execution_args, .. } => execution_args.cache_dir.clone(),
+                        _ => None,
+                    })
+                    .or_else(|| {
+                        self.args
+                            .execution_args
+                            .as_ref()
+                            .and_then(|args| args.cache_dir.clone())
+                    }),
+            )
+            .with_root_turbo_json_path(
+                self.args
+                    .root_turbo_json
+                    .clone()
+                    .map(AbsoluteSystemPathBuf::from_cwd)
+                    .transpose()?,
+            )
             .build()
     }
 
@@ -113,7 +133,7 @@ impl CommandBase {
     // Getting all of the paths.
     fn global_config_path(&self) -> Result<AbsoluteSystemPathBuf, ConfigError> {
         #[cfg(test)]
-        if let Some(global_config_path) = self.global_config_path.clone() {
+        if let Some(global_config_path) = self.override_global_config_path.clone() {
             return Ok(global_config_path);
         }
 

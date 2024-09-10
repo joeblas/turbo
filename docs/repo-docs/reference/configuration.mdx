@@ -117,6 +117,47 @@ To help with incremental migration or in situations where you can't use the `pac
   environment variable.
 </Callout>
 
+### `cacheDir`
+
+Default: `".turbo/cache"`
+
+Specify the filesystem cache directory.
+
+```jsonc title="./turbo.json"
+{
+  "cacheDir": ".turbo/cache"
+}
+```
+
+### `daemon`
+
+Default: `true`
+
+Turborepo runs a background process to pre-calculate some expensive operations. This standalone process (daemon) is a performance optimization, and not required for proper functioning of `turbo`.
+
+```jsonc title="./turbo.json"
+{
+  "daemon": true
+}
+```
+
+### `envMode`
+
+Default: `"strict"`
+
+Turborepo's Environment Modes allow you to control which environment variables are available to a task at runtime:
+
+- `"strict"`: Filter environment variables to only those that are specified in the `env` and `globalEnv` keys in `turbo.json`.
+- `"loose"`: Allow all environment variables for the process to be available.
+
+Read more about [Environment Modes](/repo/docs/crafting-your-repository/using-environment-variables#environment-modes).
+
+```jsonc title="./turbo.json"
+{
+  "envMode": "strict"
+}
+```
+
 ## Defining tasks
 
 ### `tasks`
@@ -435,3 +476,56 @@ This task is most useful for scripts that can be manipulated while they are runn
   }
 }
 ```
+
+## Remote caching
+
+The global `remoteCache` option has a variety of fields for configuring remote cache usage
+
+```jsonc title="./turbo.json"
+{
+  "remoteCache": {}
+}
+```
+
+### `enabled`
+
+Default: `true`
+
+Enables remote caching.
+
+When `false`, Turborepo will disable all remote cache operations, even if the repo has a valid token.
+If true, remote caching is enabled, but still requires the user to login and link their repo to a remote cache.
+
+### `signature`
+
+Default: `false`
+
+Enables signature verification for requests to the remote cache.
+When `true`, Turborepo will sign every uploaded artifact using the value of the environment variable `TURBO_REMOTE_CACHE_SIGNATURE_KEY`.
+Turborepo will reject any downloaded artifacts that have an invalid signature or are missing a signature.
+
+### `preflight`
+
+Default: `false`
+
+When enabled, any HTTP request will be preceded by an OPTIONS request to determine if the request is supported by the endpoint.
+
+### `timeout`
+
+Default: `30`
+
+Sets a timeout for remote cache operations.
+Value is given in seconds and only whole values are accepted.
+If `0` is passed, then there is no timeout for any cache operations.
+
+### `apiUrl`
+
+Default: `"https://vercel.com"`
+
+Set endpoint for API calls to the remote cache.
+
+### `loginUrl`
+
+Default: `"https://vercel.com"`
+
+Set endpoint for requesting tokens during `turbo login`.

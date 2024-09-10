@@ -7,7 +7,7 @@ use std::{
 
 use chrono::Local;
 use tracing::debug;
-use turbopath::{AbsoluteSystemPathBuf, AnchoredSystemPath};
+use turbopath::{AbsoluteSystemPath, AbsoluteSystemPathBuf};
 use turborepo_analytics::{start_analytics, AnalyticsHandle, AnalyticsSender};
 use turborepo_api_client::{APIAuth, APIClient};
 use turborepo_cache::AsyncCache;
@@ -54,9 +54,9 @@ pub struct RunBuilder {
     opts: Opts,
     api_auth: Option<APIAuth>,
     repo_root: AbsoluteSystemPathBuf,
+    root_turbo_json_path: AbsoluteSystemPathBuf,
     color_config: ColorConfig,
     version: &'static str,
-    ui_mode: UIMode,
     api_client: APIClient,
     analytics_sender: Option<AnalyticsSender>,
     // In watch mode, we can have a changed package that we want to serve as an entrypoint.
@@ -77,14 +77,15 @@ impl RunBuilder {
         let allow_missing_package_manager = config.allow_no_package_manager();
 
         let version = base.version();
-        let ui_mode = config.ui();
         let processes = ProcessManager::new(
             // We currently only use a pty if the following are met:
             // - we're attached to a tty
             atty::is(atty::Stream::Stdout) &&
             // - if we're on windows, we're using the UI
-            (!cfg!(windows) || matches!(ui_mode, UIMode::Tui)),
+            (!cfg!(windows) || matches!(opts.run_opts.ui_mode, UIMode::Tui)),
         );
+        let root_turbo_json_path = config.root_turbo_json_path(&base.repo_root);
+
         let CommandBase {
             repo_root,
             color_config: ui,
@@ -98,12 +99,12 @@ impl RunBuilder {
             repo_root,
             color_config: ui,
             version,
-            ui_mode,
             api_auth,
             analytics_sender: None,
             entrypoint_packages: None,
             should_print_prelude_override: None,
             allow_missing_package_manager,
+            root_turbo_json_path,
         })
     }
 
@@ -128,6 +129,39 @@ impl RunBuilder {
     pub fn with_analytics_sender(mut self, analytics_sender: Option<AnalyticsSender>) -> Self {
         self.analytics_sender = analytics_sender;
         self
+    }
+
+    pub fn calculate_filtered_packages(
+        repo_root: &AbsoluteSystemPath,
+        opts: &Opts,
+        pkg_dep_graph: &PackageGraph,
+        scm: &SCM,
+        root_turbo_json: &TurboJson,
+    ) -> Result<HashSet<PackageName>, Error> {
+        let (mut filtered_pkgs, is_all_packages) = scope::resolve_packages(
+            &opts.scope_opts,
+            repo_root,
+            pkg_dep_graph,
+            scm,
+            root_turbo_json,
+        )?;
+
+        if is_all_packages {
+            for target in opts.run_opts.tasks.iter() {
+                let mut task_name = TaskName::from(target.as_str());
+                // If it's not a package task, we convert to a root task
+                if !task_name.is_package_task() {
+                    task_name = task_name.into_root_task()
+                }
+
+                if root_turbo_json.tasks.contains_key(&task_name) {
+                    filtered_pkgs.insert(PackageName::Root);
+                    break;
+                }
+            }
+        };
+
+        Ok(filtered_pkgs)
     }
 
     // Starts analytics and returns handle. This is not included in the main `build`
@@ -325,41 +359,29 @@ impl RunBuilder {
         let task_access = TaskAccess::new(self.repo_root.clone(), async_cache.clone(), &scm);
         task_access.restore_config().await;
 
-        let root_turbo_json = TurboJson::load(
-            &self.repo_root,
-            AnchoredSystemPath::empty(),
-            &root_package_json,
-            is_single_package,
-        )?;
+        let root_turbo_json = task_access
+            .load_turbo_json(&self.root_turbo_json_path)
+            .map_or_else(
+                || {
+                    TurboJson::load(
+                        &self.repo_root,
+                        &self.root_turbo_json_path,
+                        &root_package_json,
+                        is_single_package,
+                    )
+                },
+                Result::Ok,
+            )?;
 
         pkg_dep_graph.validate()?;
 
-        let filtered_pkgs = {
-            let (mut filtered_pkgs, is_all_packages) = scope::resolve_packages(
-                &self.opts.scope_opts,
-                &self.repo_root,
-                &pkg_dep_graph,
-                &scm,
-                &root_turbo_json,
-            )?;
-
-            if is_all_packages {
-                for target in self.opts.run_opts.tasks.iter() {
-                    let mut task_name = TaskName::from(target.as_str());
-                    // If it's not a package task, we convert to a root task
-                    if !task_name.is_package_task() {
-                        task_name = task_name.into_root_task()
-                    }
-
-                    if root_turbo_json.tasks.contains_key(&task_name) {
-                        filtered_pkgs.insert(PackageName::Root);
-                        break;
-                    }
-                }
-            };
-
-            filtered_pkgs
-        };
+        let filtered_pkgs = Self::calculate_filtered_packages(
+            &self.repo_root,
+            &self.opts,
+            &pkg_dep_graph,
+            &scm,
+            &root_turbo_json,
+        )?;
 
         let env_at_execution_start = EnvironmentVariableMap::infer();
         let mut engine = self.build_engine(&pkg_dep_graph, &root_turbo_json, &filtered_pkgs)?;
@@ -388,7 +410,6 @@ impl RunBuilder {
         Ok(Run {
             version: self.version,
             color_config: self.color_config,
-            ui_mode: self.ui_mode,
             start_at,
             processes: self.processes,
             run_telemetry,
@@ -443,7 +464,11 @@ impl RunBuilder {
 
         if !self.opts.run_opts.parallel {
             engine
-                .validate(pkg_dep_graph, self.opts.run_opts.concurrency, self.ui_mode)
+                .validate(
+                    pkg_dep_graph,
+                    self.opts.run_opts.concurrency,
+                    self.opts.run_opts.ui_mode,
+                )
                 .map_err(Error::EngineValidation)?;
         }
 

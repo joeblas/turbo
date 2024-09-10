@@ -215,11 +215,12 @@ pub async fn link(
 
             let local_config_path = base.local_config_path();
             let before = local_config_path
-                .read_existing_to_string_or(Ok("{}"))
+                .read_existing_to_string()
                 .map_err(|e| config::Error::FailedToReadConfig {
                     config_path: local_config_path.clone(),
                     error: e,
-                })?;
+                })?
+                .unwrap_or_else(|| String::from("{}"));
 
             let no_preexisting_id = unset_path(&before, &["teamid"], false)?.unwrap_or(before);
             let no_preexisting_slug =
@@ -314,11 +315,12 @@ pub async fn link(
 
             let local_config_path = base.local_config_path();
             let before = local_config_path
-                .read_existing_to_string_or(Ok("{}"))
+                .read_existing_to_string()
                 .map_err(|error| config::Error::FailedToReadConfig {
                     config_path: local_config_path.clone(),
                     error,
-                })?;
+                })?
+                .unwrap_or_else(|| String::from("{}"));
 
             let no_preexisting_id = unset_path(&before, &["teamid"], false)?.unwrap_or(before);
             let no_preexisting_slug =
@@ -541,11 +543,12 @@ fn add_turbo_to_gitignore(base: &CommandBase) -> Result<(), io::Error> {
 fn add_space_id_to_turbo_json(base: &CommandBase, space_id: &str) -> Result<(), Error> {
     let turbo_json_path = base.repo_root.join_component("turbo.json");
     let turbo_json = turbo_json_path
-        .read_existing_to_string_or(Ok("{}"))
+        .read_existing_to_string()
         .map_err(|error| config::Error::FailedToReadConfig {
             config_path: turbo_json_path.clone(),
             error,
-        })?;
+        })?
+        .unwrap_or_else(|| String::from("{}"));
 
     let space_id_json_value = format!("\"{}\"", space_id);
 
@@ -569,7 +572,7 @@ mod test {
 
     use anyhow::Result;
     use tempfile::{NamedTempFile, TempDir};
-    use turbopath::{AbsoluteSystemPathBuf, AnchoredSystemPath};
+    use turbopath::AbsoluteSystemPathBuf;
     use turborepo_ui::ColorConfig;
     use turborepo_vercel_api_mock::start_test_server;
 
@@ -609,7 +612,7 @@ mod test {
         let port = port_scanner::request_open_port().unwrap();
         let handle = tokio::spawn(start_test_server(port));
         let mut base = CommandBase {
-            global_config_path: Some(
+            override_global_config_path: Some(
                 AbsoluteSystemPathBuf::try_from(user_config_file.path().to_path_buf()).unwrap(),
             ),
             repo_root: repo_root.clone(),
@@ -675,7 +678,7 @@ mod test {
         let port = port_scanner::request_open_port().unwrap();
         let handle = tokio::spawn(start_test_server(port));
         let mut base = CommandBase {
-            global_config_path: Some(
+            override_global_config_path: Some(
                 AbsoluteSystemPathBuf::try_from(user_config_file.path().to_path_buf()).unwrap(),
             ),
             repo_root: repo_root.clone(),
@@ -712,11 +715,7 @@ mod test {
 
         // verify space id is added to turbo.json
         let turbo_json_contents = fs::read_to_string(&turbo_json_file).unwrap();
-        let turbo_json = RawTurboJson::parse(
-            &turbo_json_contents,
-            AnchoredSystemPath::new("turbo.json").unwrap(),
-        )
-        .unwrap();
+        let turbo_json = RawTurboJson::parse(&turbo_json_contents, "turbo.json").unwrap();
         assert_eq!(
             turbo_json.experimental_spaces.unwrap().id.unwrap(),
             turborepo_vercel_api_mock::EXPECTED_SPACE_ID.into()

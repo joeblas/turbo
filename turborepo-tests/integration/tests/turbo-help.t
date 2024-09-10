@@ -39,7 +39,7 @@ Test help flag
         --heap <HEAP>
             Specify a file to save a pprof heap profile
         --ui <UI>
-            Specify whether to use the streaming UI or TUI [possible values: tui, stream]
+            Specify whether to use the streaming UI or TUI [possible values: tui, stream, web]
         --login <LOGIN>
             Override the login endpoint
         --no-color
@@ -58,6 +58,8 @@ Test help flag
             Verbosity level
         --dangerously-disable-package-manager-check
             Allow for missing `packageManager` in `package.json`
+        --root-turbo-json <ROOT_TURBO_JSON>
+            Use the `turbo.json` located at the provided path instead of one at the root of the repository
     -h, --help
             Print help (see more with '--help')
   
@@ -70,8 +72,10 @@ Test help flag
             Generate a graph of the task execution and output to a file when a filename is specified (.svg, .png, .jpg, .pdf, .json, .html, .mermaid, .dot). Outputs dot graph to stdout when if no filename is provided
         --no-cache
             Avoid saving task results to the cache. Useful for development/watch tasks
-        --[no-]daemon
-            Force turbo to either use or not use the local daemon. If unset turbo will use the default detection logic
+        --daemon
+            Force turbo to use the local daemon. If unset turbo will use the default detection logic
+        --no-daemon
+            Force turbo to not use the local daemon. If unset turbo will use the default detection logic
         --profile <PROFILE>
             File to write turbo's performance profile output into. You can load the file up in chrome://tracing to see which parts of your build were slow
         --anon-profile <ANON_PROFILE>
@@ -167,6 +171,7 @@ Test help flag
             Possible values:
             - tui:    Use the terminal user interface
             - stream: Use the standard output stream
+            - web:    Use the web user interface (experimental)
   
         --login <LOGIN>
             Override the login endpoint
@@ -197,6 +202,9 @@ Test help flag
             
             `turbo` will use hints from codebase to guess which package manager should be used.
   
+        --root-turbo-json <ROOT_TURBO_JSON>
+            Use the `turbo.json` located at the provided path instead of one at the root of the repository
+  
     -h, --help
             Print help (see a summary with '-h')
   
@@ -215,8 +223,11 @@ Test help flag
         --no-cache
             Avoid saving task results to the cache. Useful for development/watch tasks
   
-        --[no-]daemon
-            Force turbo to either use or not use the local daemon. If unset turbo will use the default detection logic
+        --daemon
+            Force turbo to use the local daemon. If unset turbo will use the default detection logic
+  
+        --no-daemon
+            Force turbo to not use the local daemon. If unset turbo will use the default detection logic
   
         --profile <PROFILE>
             File to write turbo's performance profile output into. You can load the file up in chrome://tracing to see which parts of your build were slow
@@ -334,7 +345,7 @@ Test help flag for link command
         --heap <HEAP>
             Specify a file to save a pprof heap profile
         --ui <UI>
-            Specify whether to use the streaming UI or TUI [possible values: tui, stream]
+            Specify whether to use the streaming UI or TUI [possible values: tui, stream, web]
         --login <LOGIN>
             Override the login endpoint
         --no-color
@@ -353,6 +364,8 @@ Test help flag for link command
             Verbosity level
         --dangerously-disable-package-manager-check
             Allow for missing `packageManager` in `package.json`
+        --root-turbo-json <ROOT_TURBO_JSON>
+            Use the `turbo.json` located at the provided path instead of one at the root of the repository
     -h, --help
             Print help (see more with '--help')
 
@@ -380,7 +393,7 @@ Test help flag for unlink command
         --heap <HEAP>
             Specify a file to save a pprof heap profile
         --ui <UI>
-            Specify whether to use the streaming UI or TUI [possible values: tui, stream]
+            Specify whether to use the streaming UI or TUI [possible values: tui, stream, web]
         --login <LOGIN>
             Override the login endpoint
         --no-color
@@ -399,6 +412,8 @@ Test help flag for unlink command
             Verbosity level
         --dangerously-disable-package-manager-check
             Allow for missing `packageManager` in `package.json`
+        --root-turbo-json <ROOT_TURBO_JSON>
+            Use the `turbo.json` located at the provided path instead of one at the root of the repository
     -h, --help
             Print help (see more with '--help')
 
@@ -428,7 +443,7 @@ Test help flag for login command
         --heap <HEAP>
             Specify a file to save a pprof heap profile
         --ui <UI>
-            Specify whether to use the streaming UI or TUI [possible values: tui, stream]
+            Specify whether to use the streaming UI or TUI [possible values: tui, stream, web]
         --login <LOGIN>
             Override the login endpoint
         --no-color
@@ -447,6 +462,8 @@ Test help flag for login command
             Verbosity level
         --dangerously-disable-package-manager-check
             Allow for missing `packageManager` in `package.json`
+        --root-turbo-json <ROOT_TURBO_JSON>
+            Use the `turbo.json` located at the provided path instead of one at the root of the repository
     -h, --help
             Print help (see more with '--help')
 
@@ -474,7 +491,7 @@ Test help flag for logout command
         --heap <HEAP>
             Specify a file to save a pprof heap profile
         --ui <UI>
-            Specify whether to use the streaming UI or TUI [possible values: tui, stream]
+            Specify whether to use the streaming UI or TUI [possible values: tui, stream, web]
         --login <LOGIN>
             Override the login endpoint
         --no-color
@@ -493,5 +510,7 @@ Test help flag for logout command
             Verbosity level
         --dangerously-disable-package-manager-check
             Allow for missing `packageManager` in `package.json`
+        --root-turbo-json <ROOT_TURBO_JSON>
+            Use the `turbo.json` located at the provided path instead of one at the root of the repository
     -h, --help
             Print help (see more with '--help')

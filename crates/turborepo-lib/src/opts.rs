@@ -1,5 +1,6 @@
 use std::{backtrace, backtrace::Backtrace};
 
+use camino::Utf8PathBuf;
 use thiserror::Error;
 use turbopath::AnchoredSystemPathBuf;
 use turborepo_api_client::APIAuth;
@@ -12,6 +13,7 @@ use crate::{
     commands::CommandBase,
     config::ConfigurationOptions,
     run::task_id::TaskId,
+    turbo_json::UIMode,
 };
 
 #[derive(Debug, Error)]
@@ -36,7 +38,7 @@ pub enum Error {
     Config(#[from] crate::config::Error),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Opts {
     pub cache_opts: CacheOpts,
     pub run_opts: RunOpts,
@@ -126,7 +128,7 @@ struct OptsInputs<'a> {
     api_auth: &'a Option<APIAuth>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct RunCacheOpts {
     pub(crate) skip_reads: bool,
     pub(crate) skip_writes: bool,
@@ -143,12 +145,13 @@ impl<'a> From<OptsInputs<'a>> for RunCacheOpts {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct RunOpts {
     pub(crate) tasks: Vec<String>,
     pub(crate) concurrency: u32,
     pub(crate) parallel: bool,
     pub(crate) env_mode: EnvMode,
+    pub(crate) cache_dir: Utf8PathBuf,
     // Whether or not to infer the framework for each workspace.
     pub(crate) framework_inference: bool,
     pub profile: Option<String>,
@@ -164,6 +167,7 @@ pub struct RunOpts {
     pub summarize: Option<Option<bool>>,
     pub(crate) experimental_space_id: Option<String>,
     pub is_github_actions: bool,
+    pub ui_mode: UIMode,
 }
 
 impl RunOpts {
@@ -181,7 +185,7 @@ impl RunOpts {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum GraphOpts {
     Stdout,
     File(String),
@@ -263,7 +267,9 @@ impl<'a> TryFrom<OptsInputs<'a>> for RunOpts {
             graph,
             dry_run: inputs.run_args.dry_run,
             env_mode: inputs.config.env_mode(),
+            cache_dir: inputs.config.cache_dir().into(),
             is_github_actions,
+            ui_mode: inputs.config.ui(),
         })
     }
 }
@@ -299,12 +305,12 @@ impl From<LogPrefix> for ResolvedLogPrefix {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ScopeOpts {
     pub pkg_inference_root: Option<AnchoredSystemPathBuf>,
     pub global_deps: Vec<String>,
     pub filter_patterns: Vec<String>,
-    pub affected_range: Option<(String, String)>,
+    pub affected_range: Option<(Option<String>, String)>,
 }
 
 impl<'a> TryFrom<OptsInputs<'a>> for ScopeOpts {
@@ -321,7 +327,7 @@ impl<'a> TryFrom<OptsInputs<'a>> for ScopeOpts {
         let affected_range = inputs.execution_args.affected.then(|| {
             let scm_base = inputs.config.scm_base();
             let scm_head = inputs.config.scm_head();
-            (scm_base.to_string(), scm_head.to_string())
+            (scm_base.map(|b| b.to_owned()), scm_head.to_string())
         });
 
         Ok(Self {
@@ -358,7 +364,7 @@ impl<'a> From<OptsInputs<'a>> for CacheOpts {
         ));
 
         CacheOpts {
-            override_dir: inputs.execution_args.cache_dir.clone(),
+            cache_dir: inputs.config.cache_dir().into(),
             skip_filesystem: inputs.execution_args.remote_only,
             remote_cache_read_only: inputs.run_args.remote_cache_read_only,
             workers: inputs.run_args.cache_workers,
@@ -391,6 +397,7 @@ mod test {
     use crate::{
         cli::DryRunMode,
         opts::{Opts, RunCacheOpts, ScopeOpts},
+        turbo_json::UIMode,
     };
 
     #[derive(Default)]
@@ -488,6 +495,7 @@ mod test {
             concurrency: 10,
             parallel: opts_input.parallel,
             env_mode: crate::cli::EnvMode::Loose,
+            cache_dir: camino::Utf8PathBuf::new(),
             framework_inference: true,
             profile: None,
             continue_on_error: opts_input.continue_on_error,
@@ -495,6 +503,7 @@ mod test {
             only: opts_input.only,
             dry_run: opts_input.dry_run,
             graph: None,
+            ui_mode: UIMode::Stream,
             single_package: false,
             log_prefix: crate::opts::ResolvedLogPrefix::Task,
             log_order: crate::opts::ResolvedLogOrder::Stream,
@@ -509,7 +518,7 @@ mod test {
             pkg_inference_root: None,
             global_deps: vec![],
             filter_patterns: opts_input.filter_patterns,
-            affected_range: opts_input.affected,
+            affected_range: opts_input.affected.map(|(base, head)| (Some(base), head)),
         };
         let opts = Opts {
             run_opts,

@@ -22,7 +22,7 @@ use turborepo_ui::{ColorConfig, GREY};
 use crate::{
     cli::error::print_potential_tasks,
     commands::{
-        bin, config, daemon, generate, link, login, logout, ls, prune, run, scan, telemetry,
+        bin, config, daemon, generate, link, login, logout, ls, prune, query, run, scan, telemetry,
         unlink, CommandBase,
     },
     get_version,
@@ -222,8 +222,14 @@ pub struct Args {
     /// should be used.
     #[clap(long, global = true)]
     pub dangerously_disable_package_manager_check: bool,
+    /// Use the `turbo.json` located at the provided path instead of one at the
+    /// root of the repository.
+    #[clap(long, global = true)]
+    pub root_turbo_json: Option<Utf8PathBuf>,
     #[clap(flatten, next_help_heading = "Run Arguments")]
-    pub run_args: Option<RunArgs>,
+    // DO NOT MAKE THIS VISIBLE
+    // This is explicitly set to None in `run`
+    run_args: Option<RunArgs>,
     // This should be inside `RunArgs` but clap currently has a bug
     // around nested flattened optional args: https://github.com/clap-rs/clap/issues/4697
     #[clap(flatten)]
@@ -282,6 +288,25 @@ pub enum DaemonCommand {
     },
     /// Shows the daemon logs
     Logs,
+}
+
+#[derive(Copy, Clone, Debug, Default, ValueEnum, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum OutputFormat {
+    /// Output in a human-readable format
+    #[default]
+    Pretty,
+    /// Output in JSON format for direct parsing
+    Json,
+}
+
+impl fmt::Display for OutputFormat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            OutputFormat::Pretty => "pretty",
+            OutputFormat::Json => "json",
+        })
+    }
 }
 
 #[derive(Subcommand, Copy, Clone, Debug, PartialEq)]
@@ -440,6 +465,15 @@ impl Args {
             );
         }
     }
+
+    /// Fetch the run args supplied to the command
+    pub fn run_args(&self) -> Option<&RunArgs> {
+        if let Some(Command::Run { run_args, .. }) = &self.command {
+            Some(run_args)
+        } else {
+            self.run_args.as_ref()
+        }
+    }
 }
 
 /// Defines the subcommands for CLI. NOTE: If we change the commands in Go,
@@ -507,6 +541,9 @@ pub enum Command {
         /// Get insight into a specific package, such as
         /// its dependencies and tasks
         packages: Vec<String>,
+        /// Output format
+        #[clap(long, value_enum)]
+        output: Option<OutputFormat>,
     },
     /// Link your local directory to a Vercel organization and enable remote
     /// caching.
@@ -565,6 +602,13 @@ pub enum Command {
         run_args: Box<RunArgs>,
         #[clap(flatten)]
         execution_args: Box<ExecutionArgs>,
+    },
+    /// Query your monorepo using GraphQL. If no query is provided, spins up a
+    /// GraphQL server with GraphiQL.
+    #[clap(hide = true)]
+    Query {
+        /// The query to run, either a file path or a query string
+        query: Option<String>,
     },
     Watch(Box<ExecutionArgs>),
     /// Unlink the current directory from your Vercel organization and disable
@@ -703,7 +747,7 @@ pub struct ExecutionArgs {
 
     /// Run only tasks that are affected by changes between
     /// the current branch and `main`
-    #[clap(long, group = "scope-filter-group")]
+    #[clap(long, group = "scope-filter-group", conflicts_with = "filter")]
     pub affected: bool,
 
     /// Set type of process output logging. Use "full" to show
@@ -817,15 +861,15 @@ pub struct RunArgs {
 
     // clap does not have negation flags such as --daemon and --no-daemon
     // so we need to use a group to enforce that only one of them is set.
-    // we set the long name as [no-]daemon with an alias of daemon such
-    // that we can merge the help text together for both flags
     // -----------------------
-    /// Force turbo to either use or not use the local daemon. If unset
+    /// Force turbo to use the local daemon. If unset
     /// turbo will use the default detection logic.
-    #[clap(long = "[no-]daemon", alias = "daemon", group = "daemon-group")]
+    #[clap(long, group = "daemon-group")]
     pub daemon: bool,
 
-    #[clap(long, group = "daemon-group", hide = true)]
+    /// Force turbo to not use the local daemon. If unset
+    /// turbo will use the default detection logic.
+    #[clap(long, group = "daemon-group")]
     pub no_daemon: bool,
 
     /// File to write turbo's performance profile output into.
@@ -1000,7 +1044,8 @@ pub async fn run(
     }
 
     let should_print_version = env::var("TURBO_PRINT_VERSION_DISABLED")
-        .map_or(true, |disable| !matches!(disable.as_str(), "1" | "true"));
+        .map_or(true, |disable| !matches!(disable.as_str(), "1" | "true"))
+        && !turborepo_ci::is_ci();
 
     if should_print_version {
         eprintln!("{}\n", GREY.apply_to(format!("turbo {}", get_version())));
@@ -1011,7 +1056,7 @@ pub async fn run(
     let mut command = if let Some(command) = mem::take(&mut cli_args.command) {
         command
     } else {
-        let run_args = cli_args.run_args.take().unwrap_or_default();
+        let run_args = cli_args.run_args.clone().unwrap_or_default();
         let execution_args = cli_args
             .execution_args
             // We clone instead of take as take would leave the command base a copy of cli_args
@@ -1165,16 +1210,19 @@ pub async fn run(
             affected,
             filter,
             packages,
+            output,
         } => {
             warn!("ls command is experimental and may change in the future");
             let event = CommandEventBuilder::new("info").with_parent(&root_telemetry);
 
             event.track_call();
             let affected = *affected;
+            let output = *output;
             let filter = filter.clone();
             let packages = packages.clone();
             let base = CommandBase::new(cli_args, repo_root, version, color_config);
-            ls::run(base, packages, event, filter, affected).await?;
+
+            ls::run(base, packages, event, filter, affected, output).await?;
 
             Ok(0)
         }
@@ -1261,7 +1309,7 @@ pub async fn run(
 
             if execution_args.tasks.is_empty() {
                 print_potential_tasks(base, event).await?;
-                process::exit(1);
+                return Ok(1);
             }
 
             if let Some((file_path, include_args)) = run_args.profile_file_and_include_args() {
@@ -1276,6 +1324,17 @@ pub async fn run(
                 }
             })?;
             Ok(exit_code)
+        }
+        Command::Query { query } => {
+            warn!("query command is experimental and may change in the future");
+            let query = query.clone();
+            let event = CommandEventBuilder::new("query").with_parent(&root_telemetry);
+            event.track_call();
+            let base = CommandBase::new(cli_args, repo_root, version, color_config);
+
+            let query = query::run(base, event, query).await?;
+
+            Ok(query)
         }
         Command::Watch(_) => {
             let event = CommandEventBuilder::new("watch").with_parent(&root_telemetry);
@@ -2570,5 +2629,16 @@ mod test {
             .unwrap()
             .dangerously_disable_package_manager_check
         );
+    }
+
+    #[test]
+    fn test_prevent_affected_and_filter() {
+        assert!(
+            Args::try_parse_from(["turbo", "run", "build", "--affected", "--filter", "foo"])
+                .is_err(),
+        );
+        assert!(Args::try_parse_from(["turbo", "build", "--affected", "--filter", "foo"]).is_err(),);
+        assert!(Args::try_parse_from(["turbo", "build", "--filter", "foo", "--affected"]).is_err(),);
+        assert!(Args::try_parse_from(["turbo", "ls", "--filter", "foo", "--affected"]).is_err(),);
     }
 }

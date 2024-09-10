@@ -1,2 +1,2 @@
-2.0.12
-latest
+2.1.2-canary.1
+canary
